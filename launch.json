@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "(lldb) Launch",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/dyn-types",
+      "args": [
+        "--p-type=FLOAT",
+        "--v-type=FAST_FIXED(13,7)",
+        "--v-flow-type=FIXED(32,16)"
+      ],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "runInTerminal": true,
+      "sudo": true
+    }
+  ]
+}

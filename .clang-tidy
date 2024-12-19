@@ -1,0 +1,56 @@
+---
+ Checks: "*,
+  -google-readability-todo,\
+  -altera-*,\
+  -fuchsia-*,\
+  -llvm-header-guard,\
+  -llvm-include-order,\
+  -llvmlibc-*,\
+  -misc-non-private-member-variables-in-classes, \
+  -misc-no-recursion, \
+  -readability-magic-numbers, \
+  -readability-identifier-length, \
+  -readability-implicit-bool-conversion, \
+  -readability-redundant-access-specifiers, \
+  -bugprone-easily-swappable-parameters, \
+  -cppcoreguidelines-avoid-magic-numbers, \
+  -cppcoreguidelines-non-private-member-variables-in-classes, \
+  -cppcoreguidelines-avoid-const-or-ref-data-members, \
+  -cppcoreguidelines-special-member-functions, \
+  -cppcoreguidelines-pro-bounds-constant-array-index, \
+  -hicpp-special-member-functions"
+WarningsAsErrors: ''
+CheckOptions:
+  - key: 'bugprone-misplaced-widening-cast.CheckImplicitCasts'
+    value: 'true'
+  - key: 'bugprone-sizeof-expression.WarnOnSizeOfIntegerExpression'
+    value: 'true'
+  - key: 'bugprone-suspicious-string-compare.WarnOnLogicalNotComparison'
+    value: 'true'
+  - key: 'readability-simplify-boolean-expr.ChainedConditionalReturn'
+    value: 'true'
+  - key: 'readability-simplify-boolean-expr.ChainedConditionalAssignment'
+    value: 'true'
+  - key: 'readability-uniqueptr-delete-release.PreferResetCall'
+    value: 'true'
+  - key: 'cppcoreguidelines-init-variables.MathHeader'
+    value: '<cmath>'
+  - key: 'readability-inconsistent-declaration-parameter-name.Strict'
+    value: 'true'
+  - key: 'readability-qualified-auto.AddConstToQualified'
+    value: 'true'
+
+  # IDENTIFIERS
+  - key: 'readability-identifier-naming.ClassCase'
+    value: 'CamelCase'
+  - key: 'readability-identifier-naming.PrivateMethodCase'
+    value: 'camelBack'
+  - key: 'readability-identifier-naming.PublicMethodCase'
+    value: 'camelBack'
+  - key: 'readability-identifier-naming.PrivateMemberPrefix'
+    value: 'm_'
+  - key: 'readability-identifier-naming.ProtectedMemberPrefix'
+    value: 'm_'
+  - key: 'readability-identifier-naming.ScopedEnumConstantCase'
+    value: 'CamelCase'
+...
