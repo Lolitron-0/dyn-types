@@ -20,7 +20,7 @@ set(SIZES
 add_compile_definitions(-DSIZES=${SIZES})
 
 add_executable(${PROJECT_NAME} ${SOURCES})
-# add_executable(${PROJECT_NAME}_og src/fluid_og.cpp)
+add_executable(${PROJECT_NAME}_og src/fluid_og.cpp)
 
 # Dependencies
 include(FetchContent)

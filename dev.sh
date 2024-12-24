@@ -17,9 +17,9 @@ cmake -S . \
 			-DCMAKE_CXX_COMPILER=clang++ \
 			-DCMAKE_C_COMPILER=clang \
       -DTYPES="FAST_FIXED(32,16),FAST_FIXED(64,8)" \
-      -DSIZES="S(250,460)" \
-      -DCMAKE_CXX_FLAGS="-fsanitize=address" \
-			-DCMAKE_BUILD_TYPE=Debug \
+      -DSIZES="S(291,84),S(36,84)" \
+      -DCMAKE_CXX_FLAGS="" \
+			-DCMAKE_BUILD_TYPE=Release \
 			-DCMAKE_EXPORT_COMPILE_COMMANDS=1 
 cmake --build build --parallel $(nproc)
 cp -f --remove-destination build/compile_commands.json .
@@ -28,7 +28,7 @@ if [ $# -ne 0 ] ; then
 	echo -e "$HI--------------------------------------$NC\n"
   if [ "$1" == "run" ]; then
     set -eux
-    ./build/dyn-types --p-type='FAST_FIXED(64,8)' --v-type='FAST_FIXED(64,8)' --v-flow-type='FAST_FIXED(64,8)' -j2 field_big.txt
+    ./build/dyn-types --p-type='FAST_FIXED(64,8)' --v-type='FAST_FIXED(64,8)' --v-flow-type='FAST_FIXED(64,8)' -j7 field_giant.txt
   elif [ "$1" == "test" ]; then
     pushd build/tests > /dev/null
     rm -rf coverage

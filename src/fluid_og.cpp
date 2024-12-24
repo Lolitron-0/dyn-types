@@ -374,7 +374,7 @@ int main() {
 
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();
-  for (size_t i = 0; i < 1000; ++i) {
+  for (size_t i = 0; i < 100; ++i) {
 
     Fixed total_delta_p = 0;
     // Apply external forces
@@ -479,9 +479,9 @@ int main() {
 
     if (prop) {
       cout << "Tick " << i << ":\n";
-      for (size_t x = 0; x < N; ++x) {
-        cout << field[x] << "\n";
-      }
+      // for (size_t x = 0; x < N; ++x) {
+      //   cout << field[x] << "\n";
+      // }
     }
   }
   std::chrono::steady_clock::time_point end =

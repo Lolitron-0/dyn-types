@@ -1,8 +1,14 @@
 [
 {
   "directory": "/home/niten/dev/dyn-types/build",
-  "command": "/usr/local/bin/clang++ -DSIZES=\"S(250,460)\" -DTYPES=\"FAST_FIXED(17,10),FAST_FIXED(64,8)\" -I/home/niten/dev/dyn-types/include -I/home/niten/dev/dyn-types/build/_deps/cxxopts-src/include -fsanitize=address -g -std=c++23 -o CMakeFiles/dyn-types.dir/src/Fluid.cpp.o -c /home/niten/dev/dyn-types/src/Fluid.cpp",
+  "command": "/usr/local/bin/clang++ -DSIZES=\"S(291,84),S(36,84)\" -DTYPES=\"FAST_FIXED(32,16),FAST_FIXED(64,8)\" -I/home/niten/dev/dyn-types/include -I/home/niten/dev/dyn-types/build/_deps/cxxopts-src/include -O3 -DNDEBUG -std=c++23 -o CMakeFiles/dyn-types.dir/src/Fluid.cpp.o -c /home/niten/dev/dyn-types/src/Fluid.cpp",
   "file": "/home/niten/dev/dyn-types/src/Fluid.cpp",
   "output": "CMakeFiles/dyn-types.dir/src/Fluid.cpp.o"
+},
+{
+  "directory": "/home/niten/dev/dyn-types/build",
+  "command": "/usr/local/bin/clang++ -DSIZES=\"S(291,84),S(36,84)\" -DTYPES=\"FAST_FIXED(32,16),FAST_FIXED(64,8)\" -I/home/niten/dev/dyn-types/include -O3 -DNDEBUG -std=c++23 -o CMakeFiles/dyn-types_og.dir/src/fluid_og.cpp.o -c /home/niten/dev/dyn-types/src/fluid_og.cpp",
+  "file": "/home/niten/dev/dyn-types/src/fluid_og.cpp",
+  "output": "CMakeFiles/dyn-types_og.dir/src/fluid_og.cpp.o"
 }
 ]

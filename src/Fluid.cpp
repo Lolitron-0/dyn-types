@@ -8,7 +8,6 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
-#include <mutex>
 #include <random>
 #include <string>
 #include <thread>
@@ -50,7 +49,8 @@ void mapSize(size_t n, size_t m, auto f) {
         ...);
 
     if (!found) {
-      std::cout << "Non precompiled size used\n";
+      std::cout << "Non precompiled size used (" << n << "x" << m
+                << ")\n";
       f.template operator()<Size<0, 0>>();
     }
   }.template operator()<SIZES>(n, m, f, std::index_sequence_for<SIZES>{});
@@ -164,7 +164,7 @@ class FluidSim {
     void swap_with(int x, int y) {
       std::swap(field(x, y), type);
       std::swap(p(x, y), cur_p);
-      swap(velocity.v(x, y), v);
+      std::swap(velocity.v(x, y), v);
     }
   };
 
@@ -209,7 +209,6 @@ public:
     size_t block = 0;
     size_t width = M / numThreads;
     while (block * width < M) {
-      assert(block * width < M);
       threadsLimits.emplace_back(
           block * width,
           std::min(static_cast<size_t>((block + 1) * width), M));
@@ -222,7 +221,8 @@ public:
           startBarrier.arrive_and_wait();
           for (int x = 0; x < N; ++x) {
             for (int y = l; y < r; ++y) {
-              if (field(x, y) != '#' && last_use(x, y) != UT - 2) {
+              if (field(x, y) != '#' &&
+                  last_use(x, y) != chooseUT<true>(0)) {
                 auto local_prop = propagate_flow<true>(x, y, l, r, 1);
                 if (std::get<0>(local_prop) > 0) {
                   prop = true;
@@ -305,23 +305,24 @@ public:
       startBarrier.arrive_and_wait();
       endBarrier.arrive_and_wait();
 
-      // for (auto&& [l, r] : threadsLimits) {
-      //   for (int x = 0; x < N; ++x) {
-      //     if (field(x, l) != '#' && last_use(x, l) != UT - 2) {
-      //       auto local_prop = propagate_flow<false>(x, l, 0, 0, 1);
-      //       if (std::get<0>(local_prop) > 0) {
-      //         prop = true;
-      //       }
-      //     }
-      //   }
-      // }
+      for (auto&& [l, r] : threadsLimits) {
+        for (int x = 0; x < N; ++x) {
+          if (field(x, l) != '#' &&
+              last_use(x, l) != chooseUT<false>(0)) {
+            auto local_prop = propagate_flow<false>(x, l, 0, 0, 1);
+            if (std::get<0>(local_prop) > 0) {
+              prop = true;
+            }
+          }
+        }
+      }
     } while (prop);
 
-    for (size_t x = 0; x < N; ++x) {
-      for (size_t y = 0; y < M; ++y) {
-        last_use(x, y) = UT;
-      }
-    }
+    // for (size_t x = 0; x < N; ++x) {
+    //   for (size_t y = 0; y < M; ++y) {
+    //     last_use(x, y) = UT;
+    //   }
+    // }
 
     // Recalculate p with kinetic energy
     for (size_t x = 0; x < N; ++x) {
@@ -398,7 +399,7 @@ private:
       int nx = x + dx;
       int ny = y + dy;
       if constexpr (isMT) {
-        if (ny < left || ny > right) {
+        if (ny <= left || ny >= right) {
           continue;
         }
       }
@@ -412,7 +413,7 @@ private:
         auto vp = std::min(lim, decltype(lim)(cap - flow));
         if (last_use(nx, ny) == chooseUT<isMT>(1)) {
           velocity_flow.add(x, y, dx, dy, vp);
-          last_use(x, y) = UT;
+          last_use(x, y) = chooseUT<isMT>(0);
           // cerr << x << " " << y << " -> " << nx << " " << ny << " "
           // << vp
           // << " / " << lim << "\n";
@@ -423,7 +424,7 @@ private:
         ret += t;
         if (prop) {
           velocity_flow.add(x, y, dx, dy, t);
-          last_use(x, y) = UT;
+          last_use(x, y) = chooseUT<isMT>(0);
           // cerr << x << " " << y << " -> " << nx << " " << ny << " "
           // <<
           // t
