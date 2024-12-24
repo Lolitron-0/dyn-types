@@ -7,9 +7,9 @@
       "request": "launch",
       "program": "${workspaceFolder}/build/dyn-types",
       "args": [
-        "--p-type=FLOAT",
-        "--v-type=FAST_FIXED(13,7)",
-        "--v-flow-type=FIXED(32,16)"
+        "--p-type=FAST_FIXED(17,10)",
+        "--v-type=FAST_FIXED(17,10)",
+        "--v-flow-type=FAST_FIXED(17,10)", "field_big.txt"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",

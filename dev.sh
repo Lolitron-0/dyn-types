@@ -5,6 +5,9 @@ set -eu
 
 mkdir -p build 
 
+# -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -Wall -Wextra -Wno-missing-braces -pedantic -fprofile-instr-generate -fcoverage-mapping" 
+
+
 HI='\033[0;32m'
 NC='\033[0m'
 
@@ -13,9 +16,9 @@ cmake -S . \
 			-G Ninja \
 			-DCMAKE_CXX_COMPILER=clang++ \
 			-DCMAKE_C_COMPILER=clang \
-      -DTYPES="FLOAT,FIXED(64,16)" \
-      -DSIZES="S(36,84)" \
-      -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -Wall -Wextra -Wno-missing-braces -pedantic -fprofile-instr-generate -fcoverage-mapping" \
+      -DTYPES="FAST_FIXED(32,16),FAST_FIXED(64,8)" \
+      -DSIZES="S(250,460)" \
+      -DCMAKE_CXX_FLAGS="-fsanitize=address" \
 			-DCMAKE_BUILD_TYPE=Debug \
 			-DCMAKE_EXPORT_COMPILE_COMMANDS=1 
 cmake --build build --parallel $(nproc)
@@ -25,7 +28,7 @@ if [ $# -ne 0 ] ; then
 	echo -e "$HI--------------------------------------$NC\n"
   if [ "$1" == "run" ]; then
     set -eux
-    ./build/dyn-types --p-type='FIXED(64,16)' --v-type='FIXED(64,16)' --v-flow-type='FIXED(64,16)'
+    ./build/dyn-types --p-type='FAST_FIXED(64,8)' --v-type='FAST_FIXED(64,8)' --v-flow-type='FAST_FIXED(64,8)' -j2 field_big.txt
   elif [ "$1" == "test" ]; then
     pushd build/tests > /dev/null
     rm -rf coverage

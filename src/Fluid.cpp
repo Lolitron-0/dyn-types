@@ -1,13 +1,21 @@
 #include "dyn-types/ChooseTypes.hpp"
 #include "dyn-types/Fixed.hpp"
 #include <array>
+#include <barrier>
 #include <bits/stdc++.h>
+#include <chrono>
 #include <cxxopts.hpp>
+#include <iostream>
 #include <iterator>
+#include <memory>
+#include <mutex>
 #include <random>
+#include <string>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #ifndef SIZES
 #define SIZES
@@ -129,6 +137,7 @@ template <typename GType, typename Size>
 struct FluidSimProps {
   GType g;
   Matrix<char, Size> field;
+  size_t num_threads;
 };
 
 template <typename PType, typename VelocityType, typename VelFlowType,
@@ -170,6 +179,11 @@ private:
   Matrix<int, Size> last_use{};
   int UT = 0;
   std::array<RhoType, 256> rho;
+  size_t numThreads;
+  std::vector<std::pair<int, int>> threadsLimits;
+  std::vector<std::jthread> threads;
+  std::barrier<std::function<void(void)>> endBarrier, startBarrier;
+  bool prop;
 
   Matrix<PType, Size> p{}, old_p;
 
@@ -184,22 +198,55 @@ public:
         dirs(N, M),
         velocity(N, M),
         velocity_flow(N, M),
-        last_use(N, M) {
-    // clang-format off
-      
+        last_use(N, M),
+        numThreads(props.num_threads),
+        endBarrier(numThreads + 1,
+                   [] {
+                   }),
+        startBarrier(numThreads + 1, [] {
+        }) {
+
+    size_t block = 0;
+    size_t width = M / numThreads;
+    while (block * width < M) {
+      assert(block * width < M);
+      threadsLimits.emplace_back(
+          block * width,
+          std::min(static_cast<size_t>((block + 1) * width), M));
+      block++;
+    }
+
+    for (auto [l, r] : threadsLimits) {
+      threads.emplace_back([l, r, this] {
+        while (true) {
+          startBarrier.arrive_and_wait();
+          for (int x = 0; x < N; ++x) {
+            for (int y = l; y < r; ++y) {
+              if (field(x, y) != '#' && last_use(x, y) != UT - 2) {
+                auto local_prop = propagate_flow<true>(x, y, l, r, 1);
+                if (std::get<0>(local_prop) > 0) {
+                  prop = true;
+                }
+              }
+            }
+          }
+          endBarrier.arrive_and_wait();
+        }
+      });
+    }
 
     rho[' '] = 0.01;
     rho['.'] = 1000;
 
     for (size_t x = 0; x < N; ++x) {
       for (size_t y = 0; y < M; ++y) {
-        if (field(x,y) == '#') {
+        if (field(x, y) == '#') {
           continue;
         }
         for (auto [dx, dy] : deltas) {
-          dirs(x,y) +=
+          dirs(x, y) +=
               static_cast<std::remove_cvref_t<decltype(dirs(x, y))>>(
-                  field(x + dx,y + dy) != '#');
+                  field(x + dx, y + dy) != '#');
         }
       }
     }
@@ -208,12 +255,13 @@ public:
   void step() {
     PType total_delta_p = 0;
     // Apply external forces
+    // #pragma omp parallel for num_threads(4)
     for (size_t x = 0; x < N; ++x) {
       for (size_t y = 0; y < M; ++y) {
-        if (field(x,y) == '#') {
+        if (field(x, y) == '#') {
           continue;
         }
-        if (field(x + 1,y) != '#') {
+        if (field(x + 1, y) != '#') {
           velocity.add(x, y, 1, 0, g);
         }
       }
@@ -223,26 +271,26 @@ public:
     old_p = p;
     for (size_t x = 0; x < N; ++x) {
       for (size_t y = 0; y < M; ++y) {
-        if (field(x,y) == '#') {
+        if (field(x, y) == '#') {
           continue;
         }
         for (auto [dx, dy] : deltas) {
           int nx = x + dx;
           int ny = y + dy;
-          if (field(nx,ny) != '#' && old_p(nx,ny) < old_p(x,y)) {
-            auto delta_p = old_p(x,y) - old_p(nx,ny);
+          if (field(nx, ny) != '#' && old_p(nx, ny) < old_p(x, y)) {
+            auto delta_p = old_p(x, y) - old_p(nx, ny);
             auto force   = delta_p;
             auto& contr  = velocity.get(nx, ny, -dx, -dy);
-            if (contr * rho[(int)field(nx,ny)] >= force) {
-              contr -= force / rho[(int)field(nx,ny)];
+            if (contr * rho[(int)field(nx, ny)] >= force) {
+              contr -= force / rho[(int)field(nx, ny)];
               continue;
             }
-            force -= contr * rho[(int)field(nx,ny)];
+            force -= contr * rho[(int)field(nx, ny)];
             contr = 0;
             velocity.add(x, y, dx, dy,
                          VelocityType(force / rho[(int)field(x, y)]));
-            p(x,y) -= force / dirs(x,y);
-            total_delta_p -= force / dirs(x,y);
+            p(x, y) -= force / dirs(x, y);
+            total_delta_p -= force / dirs(x, y);
           }
         }
       }
@@ -250,21 +298,30 @@ public:
 
     // Make flow from velocities
     velocity_flow.clear();
-    bool prop     = false;
+    prop = false;
     do {
-      UT += 2;
+      UT += 4;
       prop = false;
-      for (size_t x = 0; x < N; ++x) {
-        for (size_t y = 0; y < M; ++y) {
-          if (field(x, y) != '#' && last_use(x, y) != UT) {
-            auto [t, local_prop, _] = propagate_flow(x, y, 1);
-            if (t > 0) {
-              prop = true;
-            }
-          }
-        }
-      }
+      startBarrier.arrive_and_wait();
+      endBarrier.arrive_and_wait();
+
+      // for (auto&& [l, r] : threadsLimits) {
+      //   for (int x = 0; x < N; ++x) {
+      //     if (field(x, l) != '#' && last_use(x, l) != UT - 2) {
+      //       auto local_prop = propagate_flow<false>(x, l, 0, 0, 1);
+      //       if (std::get<0>(local_prop) > 0) {
+      //         prop = true;
+      //       }
+      //     }
+      //   }
+      // }
     } while (prop);
+
+    for (size_t x = 0; x < N; ++x) {
+      for (size_t y = 0; y < M; ++y) {
+        last_use(x, y) = UT;
+      }
+    }
 
     // Recalculate p with kinetic energy
     for (size_t x = 0; x < N; ++x) {
@@ -312,26 +369,40 @@ public:
 
     if (prop) {
       std::cout << "Tick " << curStep << ":\n";
-      for (int i = 0; i < N; i++) {
-        for (int j = 0; j < M; j++) {
-        std::cout << field(i, j) ;
-        }
-        std::cout << '\n';
-      }
+      // for (int i = 0; i < N; i++) {
+      //   for (int j = 0; j < M; j++) {
+      //     std::cout << field(i, j);
+      //   }
+      //   std::cout << '\n';
+      // }
     }
 
     curStep++;
   }
 
 private:
+  template <bool isMT>
+  constexpr auto chooseUT(int off) {
+    if constexpr (isMT) {
+      return UT - off - 2;
+    }
+    return UT - off;
+  }
+
+  template <bool isMT>
   std::tuple<VelFlowType, bool, std::pair<int, int>> propagate_flow(
-      int x, int y, VelFlowType lim) {
-    last_use(x, y)  = UT - 1;
+      int x, int y, int left, int right, VelFlowType lim) {
+    last_use(x, y)  = chooseUT<isMT>(1);
     VelFlowType ret = 0;
     for (auto [dx, dy] : deltas) {
       int nx = x + dx;
       int ny = y + dy;
-      if (field(nx, ny) != '#' && last_use(nx, ny) < UT) {
+      if constexpr (isMT) {
+        if (ny < left || ny > right) {
+          continue;
+        }
+      }
+      if (field(nx, ny) != '#' && last_use(nx, ny) < chooseUT<isMT>(0)) {
         auto cap  = velocity.get(x, y, dx, dy);
         auto flow = velocity_flow.get(x, y, dx, dy);
         if (flow == cap) {
@@ -339,7 +410,7 @@ private:
         }
         // assert(v >= velocity_flow.get(x, y, dx, dy));
         auto vp = std::min(lim, decltype(lim)(cap - flow));
-        if (last_use(nx, ny) == UT - 1) {
+        if (last_use(nx, ny) == chooseUT<isMT>(1)) {
           velocity_flow.add(x, y, dx, dy, vp);
           last_use(x, y) = UT;
           // cerr << x << " " << y << " -> " << nx << " " << ny << " "
@@ -347,7 +418,8 @@ private:
           // << " / " << lim << "\n";
           return { vp, 1, { nx, ny } };
         }
-        auto [t, prop, end] = propagate_flow(nx, ny, vp);
+        auto [t, prop, end] =
+            propagate_flow<isMT>(nx, ny, left, right, vp);
         ret += t;
         if (prop) {
           velocity_flow.add(x, y, dx, dy, t);
@@ -360,7 +432,7 @@ private:
         }
       }
     }
-    last_use(x, y) = UT;
+    last_use(x, y) = chooseUT<isMT>(0);
     return { ret, 0, { 0, 0 } };
   }
 
@@ -484,6 +556,7 @@ auto main(int argc, char** argv) -> int {
   std::string pTypeStr;
   std::string velocityTypeStr;
   std::string velFlowTypeStr;
+  size_t jobs = 1;
   // clang-format off
   cliOptions.add_options()
       ("h,help", "Show help")
@@ -491,9 +564,12 @@ auto main(int argc, char** argv) -> int {
        cxxopts::value<std::string>(pTypeStr))
       ("v-type", "Type of velocity, required",
        cxxopts::value<std::string>(velocityTypeStr))
-      ("v-flow-type", "Type of velocity flow, required", cxxopts::value<std::string>(velFlowTypeStr));
+      ("v-flow-type", "Type of velocity flow, required", cxxopts::value<std::string>(velFlowTypeStr))
+      ("j,jobs", "Num threads to use", cxxopts::value<size_t>(jobs))
+      ("field", "File with field", cxxopts::value<std::vector<std::string>>());
   // clang-format on
 
+  cliOptions.parse_positional("field");
   auto result{ cliOptions.parse(argc, argv) };
 
   if (result.count("help")) {
@@ -508,8 +584,19 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
+  if (result.count("field") == 0) {
+    std::cout << cliOptions.help() << std::endl;
+    return 0;
+  }
+
+  auto fileName{ result["field"].as<std::vector<std::string>>().at(0) };
+
   std::vector<std::string> fieldLines;
-  std::ifstream f{ "field.txt" };
+  std::ifstream f{ fileName };
+  if (!f.good()) {
+    std::cerr << "bro...\n";
+    return 1;
+  }
   std::string line;
   size_t m = 0;
   while (std::getline(f, line)) {
@@ -530,11 +617,25 @@ auto main(int argc, char** argv) -> int {
             }
           }
 
-          FluidSimProps<VelocityType, Size> props{ 0.1, field };
+          FluidSimProps<VelocityType, Size> props{ 0.1, field, jobs };
           FluidSim<PType, VelocityType, VelFlowType, Size> sim(props);
+
+          std::chrono::steady_clock::time_point start =
+              std::chrono::steady_clock::now();
           for (int i = 0; i < T; i++) {
             sim.step();
+            if (i == 1000) {
+              break;
+            }
           }
+          std::chrono::steady_clock::time_point end =
+              std::chrono::steady_clock::now();
+          std::cout
+              << "Time: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(
+                     end - start)
+                     .count()
+              << std::endl;
         });
       });
     });
