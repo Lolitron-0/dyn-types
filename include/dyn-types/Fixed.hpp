@@ -89,6 +89,15 @@ struct Fixed {
 
   auto operator<=>(const Fixed&) const = default;
   bool operator==(const Fixed&) const  = default;
+  friend std::ostream& operator<<(std::ostream& os, const Fixed& f) {
+    os << f.v;
+    return os;
+  }
+
+  friend std::istream& operator>>(std::istream& is, Fixed& f) {
+    is >> f.v;
+    return is;
+  }
 
   BaseT v;
 };

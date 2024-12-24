@@ -1,3 +1,4 @@
+#include "dyn-types/ChooseSize.hpp"
 #include "dyn-types/ChooseTypes.hpp"
 #include "dyn-types/Fixed.hpp"
 #include <array>
@@ -9,43 +10,21 @@
 #include <type_traits>
 #include <utility>
 
-#ifndef SIZES
-#define SIZES
-#endif
-
-template <size_t Rows, size_t Cols>
-struct Size {
-  static constexpr auto rows = Rows;
-  static constexpr auto cols = Cols;
-};
-
-#define S(n, m) Size<n, m>
-
-template <typename F, typename... Ts, size_t... Is>
-auto chooseSize(size_t n, size_t m, F f) {
+template <typename T, size_t N>
+std::ostream& operator<<(std::ostream& os, const std::array<T, N>& arr) {
+  for (auto&& el : arr) {
+    os << el << ' ';
+  }
+  os << '\n';
+  return os;
 }
 
-void mapSize(size_t n, size_t m, auto f) {
-
-  []<typename... Ts, size_t... Is>(size_t n, size_t m, auto f,
-                                   std::index_sequence<Is...>) {
-    bool found  = false;
-    using Tuple = std::tuple<Ts...>;
-    (
-        [&]<size_t i> {
-          if (!found && n == std::tuple_element_t<i, Tuple>::rows &&
-              m == std::tuple_element_t<i, Tuple>::cols) {
-            found = true;
-            f.template operator()<std::tuple_element_t<i, Tuple>>();
-          }
-        }.template operator()<Is>(),
-        ...);
-
-    if (!found) {
-      std::cout << "Non precompiled size used\n";
-      f.template operator()<Size<0, 0>>();
-    }
-  }.template operator()<SIZES>(n, m, f, std::index_sequence_for<SIZES>{});
+template <typename T, size_t N>
+std::istream& operator>>(std::istream& is, std::array<T, N>& arr) {
+  for (auto&& el : arr) {
+    is >> el;
+  }
+  return is;
 }
 
 template <typename T, typename Size>
@@ -72,6 +51,14 @@ public:
     }
   }
 
+  const T& operator()(size_t i, size_t j) const {
+    if constexpr (Fast) {
+      return data[i * Size::cols + j];
+    } else {
+      return data[i * cols + j];
+    }
+  }
+
   void clear() {
     std::fill(std::begin(data), std::end(data), T{});
   }
@@ -81,6 +68,25 @@ public:
   }
   [[nodiscard]] auto getCols() const -> size_t {
     return cols;
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const Matrix& m) {
+    for (size_t i = 0; i < m.rows; ++i) {
+      for (size_t j = 0; j < m.cols; ++j) {
+        os << m(i, j) << " ";
+      }
+      os << "\n";
+    }
+    return os;
+  }
+
+  friend std::istream& operator>>(std::istream& os, Matrix& m) {
+    for (size_t i = 0; i < m.rows; ++i) {
+      for (size_t j = 0; j < m.cols; ++j) {
+        os >> m(i, j);
+      }
+    }
+    return os;
   }
 
 private:
@@ -116,6 +122,21 @@ struct VectorField {
 
   void clear() {
     v.clear();
+  }
+
+  friend std::ostream& operator<<(std::ostream& os,
+                                  const VectorField& vf) {
+    os << vf.v.getRows() << ' ' << vf.v.getCols() << '\n';
+    os << vf.v;
+    return os;
+  }
+  friend std::istream& operator>>(std::istream& is, VectorField& vf) {
+    size_t rows;
+    size_t cols;
+    is >> rows >> cols;
+    vf.v = { rows, cols };
+    is >> vf.v;
+    return is;
   }
 };
 
@@ -161,48 +182,32 @@ class FluidSim {
 
 private:
   GType g;
-  size_t N, M;
+  size_t N{}, M{};
   size_t curStep{ 1 };
-  Matrix<Fixed<32, 0>, Size> dirs{};
+  Matrix<Fixed<32, 0>, Size> dirs;
   Matrix<char, Size> field;
-  VectorField<VelocityType, Size> velocity{};
-  VectorField<VelFlowType, Size> velocity_flow{};
-  Matrix<int, Size> last_use{};
+  VectorField<VelocityType, Size> velocity;
+  VectorField<VelFlowType, Size> velocity_flow;
+  Matrix<int, Size> last_use;
   int UT = 0;
   std::array<RhoType, 256> rho;
 
-  Matrix<PType, Size> p{}, old_p;
+  Matrix<PType, Size> p, old_p;
 
 public:
   explicit FluidSim(const FluidSimProps<GType, Size>& props)
       : g{ props.g },
         N{ props.field.getRows() },
         M{ props.field.getCols() },
-        field(props.field),
-        p(N, M),
-        old_p(N, M),
         dirs(N, M),
+        field(props.field),
         velocity(N, M),
         velocity_flow(N, M),
-        last_use(N, M) {
-    // clang-format off
-      
+        last_use(N, M),
+        p(N, M),
+        old_p(N, M) {
 
-    rho[' '] = 0.01;
-    rho['.'] = 1000;
-
-    for (size_t x = 0; x < N; ++x) {
-      for (size_t y = 0; y < M; ++y) {
-        if (field(x,y) == '#') {
-          continue;
-        }
-        for (auto [dx, dy] : deltas) {
-          dirs(x,y) +=
-              static_cast<std::remove_cvref_t<decltype(dirs(x, y))>>(
-                  field(x + dx,y + dy) != '#');
-        }
-      }
-    }
+    init();
   }
 
   void step() {
@@ -210,10 +215,10 @@ public:
     // Apply external forces
     for (size_t x = 0; x < N; ++x) {
       for (size_t y = 0; y < M; ++y) {
-        if (field(x,y) == '#') {
+        if (field(x, y) == '#') {
           continue;
         }
-        if (field(x + 1,y) != '#') {
+        if (field(x + 1, y) != '#') {
           velocity.add(x, y, 1, 0, g);
         }
       }
@@ -223,26 +228,26 @@ public:
     old_p = p;
     for (size_t x = 0; x < N; ++x) {
       for (size_t y = 0; y < M; ++y) {
-        if (field(x,y) == '#') {
+        if (field(x, y) == '#') {
           continue;
         }
         for (auto [dx, dy] : deltas) {
           int nx = x + dx;
           int ny = y + dy;
-          if (field(nx,ny) != '#' && old_p(nx,ny) < old_p(x,y)) {
-            auto delta_p = old_p(x,y) - old_p(nx,ny);
+          if (field(nx, ny) != '#' && old_p(nx, ny) < old_p(x, y)) {
+            auto delta_p = old_p(x, y) - old_p(nx, ny);
             auto force   = delta_p;
             auto& contr  = velocity.get(nx, ny, -dx, -dy);
-            if (contr * rho[(int)field(nx,ny)] >= force) {
-              contr -= force / rho[(int)field(nx,ny)];
+            if (contr * rho[(int)field(nx, ny)] >= force) {
+              contr -= force / rho[(int)field(nx, ny)];
               continue;
             }
-            force -= contr * rho[(int)field(nx,ny)];
+            force -= contr * rho[(int)field(nx, ny)];
             contr = 0;
             velocity.add(x, y, dx, dy,
                          VelocityType(force / rho[(int)field(x, y)]));
-            p(x,y) -= force / dirs(x,y);
-            total_delta_p -= force / dirs(x,y);
+            p(x, y) -= force / dirs(x, y);
+            total_delta_p -= force / dirs(x, y);
           }
         }
       }
@@ -250,7 +255,7 @@ public:
 
     // Make flow from velocities
     velocity_flow.clear();
-    bool prop     = false;
+    bool prop = false;
     do {
       UT += 2;
       prop = false;
@@ -314,7 +319,7 @@ public:
       std::cout << "Tick " << curStep << ":\n";
       for (int i = 0; i < N; i++) {
         for (int j = 0; j < M; j++) {
-        std::cout << field(i, j) ;
+          std::cout << field(i, j);
         }
         std::cout << '\n';
       }
@@ -323,7 +328,80 @@ public:
     curStep++;
   }
 
+  friend std::ostream& operator<<(std::ostream& os, const FluidSim& sim) {
+    os << sim.N << ' ' << sim.M << '\n';
+    os << sim.g << ' ';
+    os << sim.curStep << ' ';
+
+    os << std::endl;
+
+    for (int x = 0; x < sim.N; ++x) {
+      for (int y = 0; y < sim.M; ++y) {
+        os << sim.field(x, y);
+      }
+      os << std::endl;
+    }
+    os << sim.p;
+    os << sim.old_p;
+    os << sim.velocity;
+    os << sim.velocity_flow;
+    os << sim.last_use;
+    os << sim.UT;
+    return os;
+  }
+
+  explicit FluidSim(size_t N, size_t M, std::istream& is)
+      : N(N),
+        M(M),
+        dirs(N, M),
+        field(N, M),
+        velocity(N, M),
+        velocity_flow(N, M),
+        last_use(N, M),
+        p(N, M),
+        old_p(N, M) {
+    is >> g;
+    is >> curStep;
+    char dummy;
+    is.seekg(2, std::ios::cur);
+    for (int x = 0; x < N; ++x) {
+      for (int y = 0; y < M; ++y) {
+        is.read(&dummy, 1);
+        field(x, y) = dummy;
+        std::cout << field(x, y);
+      }
+      is.read(&dummy, 1);
+      std::cout << std::endl;
+    }
+    is >> p;
+    is >> old_p;
+    is >> velocity;
+    is >> velocity_flow;
+    is >> last_use;
+    is >> UT;
+
+    init();
+  }
+
 private:
+  void init() {
+    rho[' '] = 0.01;
+    rho['.'] = 1000;
+
+    for (size_t x = 0; x < N; ++x) {
+      for (size_t y = 0; y < M; ++y) {
+        if (field(x, y) == '#') {
+          continue;
+        }
+        for (auto [dx, dy] : deltas) {
+          dirs(x, y) +=
+              static_cast<std::remove_cvref_t<decltype(dirs(x, y))>>(
+                  field(x + dx, y + dy) != '#');
+        }
+      }
+    }
+  }
+
   std::tuple<VelFlowType, bool, std::pair<int, int>> propagate_flow(
       int x, int y, VelFlowType lim) {
     last_use(x, y)  = UT - 1;
@@ -476,7 +554,14 @@ void map(const char* name, std::function<void()> f) {
   f();
 }
 
+std::function<void(void)> sigint_handler = [] {
+};
+void sigint_wrapper(int /*unused*/) {
+  sigint_handler();
+}
+
 auto main(int argc, char** argv) -> int {
+  std::ignore = std::signal(SIGINT, sigint_wrapper);
 
   cxxopts::Options cliOptions{
     "dyn-types", "Fluid simulation with dynamic type choice"
@@ -484,6 +569,7 @@ auto main(int argc, char** argv) -> int {
   std::string pTypeStr;
   std::string velocityTypeStr;
   std::string velFlowTypeStr;
+  std::string stateFile;
   // clang-format off
   cliOptions.add_options()
       ("h,help", "Show help")
@@ -491,9 +577,13 @@ auto main(int argc, char** argv) -> int {
        cxxopts::value<std::string>(pTypeStr))
       ("v-type", "Type of velocity, required",
        cxxopts::value<std::string>(velocityTypeStr))
-      ("v-flow-type", "Type of velocity flow, required", cxxopts::value<std::string>(velFlowTypeStr));
+      ("start", "Path to file with state to start from",
+       cxxopts::value<std::string>(stateFile))
+      ("v-flow-type", "Type of velocity flow, required", cxxopts::value<std::string>(velFlowTypeStr))
+      ("field", "File with field", cxxopts::value<std::vector<std::string>>());
   // clang-format on
 
+  cliOptions.parse_positional("field");
   auto result{ cliOptions.parse(argc, argv) };
 
   if (result.count("help")) {
@@ -508,8 +598,18 @@ auto main(int argc, char** argv) -> int {
     return 0;
   }
 
+  if (result.count("field") == 0) {
+    std::cout << cliOptions.help() << std::endl;
+    return 0;
+  }
+  auto fileName{ result["field"].as<std::vector<std::string>>().at(0) };
+
   std::vector<std::string> fieldLines;
-  std::ifstream f{ "field.txt" };
+  std::ifstream f{ fileName };
+  if (!f.good()) {
+    std::cerr << "bro...\n";
+    return 1;
+  }
   std::string line;
   size_t m = 0;
   while (std::getline(f, line)) {
@@ -523,17 +623,40 @@ auto main(int argc, char** argv) -> int {
     map(velocityTypeStr, [&]<typename VelocityType> {
       map(velFlowTypeStr, [&]<typename VelFlowType> {
         mapSize(fieldLines.size(), m, [&]<typename Size>() {
-          Matrix<char, Size> field{ fieldLines.size(), m };
-          for (int i = 0; i < fieldLines.size(); i++) {
-            for (int j = 0; j < m; j++) {
-              field(i, j) = fieldLines[i][j];
+          std::unique_ptr<
+              FluidSim<PType, VelocityType, VelFlowType, Size>>
+              sim;
+          if (result.count("start") == 0) {
+            Matrix<char, Size> field{ fieldLines.size(), m };
+            for (int i = 0; i < fieldLines.size(); i++) {
+              for (int j = 0; j < m; j++) {
+                field(i, j) = fieldLines[i][j];
+              }
             }
+
+            FluidSimProps<VelocityType, Size> props{ 0.1, field };
+            sim = std::make_unique<
+                FluidSim<PType, VelocityType, VelFlowType, Size>>(props);
+          } else {
+            std::ifstream in{ stateFile };
+            size_t rows{};
+            size_t cols{};
+            in >> rows >> cols;
+
+            sim = std::make_unique<
+                FluidSim<PType, VelocityType, VelFlowType, Size>>(
+                rows, cols, in);
           }
 
-          FluidSimProps<VelocityType, Size> props{ 0.1, field };
-          FluidSim<PType, VelocityType, VelFlowType, Size> sim(props);
-          for (int i = 0; i < T; i++) {
-            sim.step();
+          sigint_handler = [&sim] {
+            std::ofstream of{ "state.txt" };
+            of << *sim;
+            of.flush();
+            exit(0);
+          };
+
+          for (int i = 0; i < 10000; i++) {
+            sim->step();
           }
         });
       });
